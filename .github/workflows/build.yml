@@ -136,6 +136,8 @@ jobs:
           import android.graphics.Path
           import android.graphics.PixelFormat
           import android.graphics.drawable.GradientDrawable
+          import android.os.Handler
+          import android.os.Looper
           import android.view.*
           import android.view.accessibility.AccessibilityEvent
 
@@ -144,18 +146,19 @@ jobs:
               private lateinit var wm: WindowManager
               private lateinit var circle: View
               private lateinit var lp: WindowManager.LayoutParams
+              private lateinit var shape: GradientDrawable
+              private val handler = Handler(Looper.getMainLooper())
               private val size = 140
 
               override fun onServiceConnected() {
                   wm = getSystemService(WINDOW_SERVICE) as WindowManager
 
-                  circle = View(this).apply {
-                      background = GradientDrawable().apply {
-                          shape = GradientDrawable.OVAL
-                          setColor(Color.argb(90, 255, 0, 0))
-                          setStroke(6, Color.RED)
-                      }
+                  shape = GradientDrawable().apply {
+                      this.shape = GradientDrawable.OVAL
+                      setColor(Color.argb(90, 255, 0, 0))
+                      setStroke(6, Color.RED)
                   }
+                  circle = View(this).apply { background = shape }
 
                   lp = WindowManager.LayoutParams(
                       size, size,
@@ -209,23 +212,32 @@ jobs:
                   val cx = loc[0] + size / 2f
                   val cy = loc[1] + size / 2f
 
+                  // Turn green (key detected) and let touches pass through the circle
+                  shape.setColor(Color.argb(160, 0, 255, 0))
                   lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                   wm.updateViewLayout(circle, lp)
 
-                  val path = Path().apply { moveTo(cx, cy) }
-                  val gesture = GestureDescription.Builder()
-                      .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
-                      .build()
+                  // Wait a moment so the circle is really see-through, then tap
+                  handler.postDelayed({
+                      val path = Path().apply { moveTo(cx, cy) }
+                      val gesture = GestureDescription.Builder()
+                          .addStroke(GestureDescription.StrokeDescription(path, 0, 60))
+                          .build()
+                      val sent = dispatchGesture(gesture, object : GestureResultCallback() {
+                          override fun onCompleted(g: GestureDescription?) = restore()
+                          override fun onCancelled(g: GestureDescription?) = restore()
+                      }, null)
+                      if (!sent) restore()
+                  }, 150)
 
-                  dispatchGesture(gesture, object : GestureResultCallback() {
-                      override fun onCompleted(g: GestureDescription?) = restore()
-                      override fun onCancelled(g: GestureDescription?) = restore()
-                  }, null)
+                  // Safety: always restore the circle after 1 second
+                  handler.postDelayed({ restore() }, 1000)
               }
 
               private fun restore() {
+                  shape.setColor(Color.argb(90, 255, 0, 0))
                   lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-                  wm.updateViewLayout(circle, lp)
+                  try { wm.updateViewLayout(circle, lp) } catch (e: Exception) {}
               }
 
               override fun onAccessibilityEvent(e: AccessibilityEvent?) {}
